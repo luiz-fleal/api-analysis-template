@@ -2,8 +2,6 @@
 
 # Project Name
 
----
-
 # Frameworks and Packages
 
 The following frameworks and packages will be used for code function:
