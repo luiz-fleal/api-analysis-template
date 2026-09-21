@@ -1,5 +1,7 @@
-# -Project Name-
 ![CI](https://github.com/luiz-fleal/api-analysis-template/actions/workflows/ci.yml/badge.svg)
+
+# Project Name
+
 ---
 
 # Frameworks and Packages
