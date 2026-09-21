@@ -9,5 +9,3 @@ jobs:
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run pytest
-
-how to use gh actions for this and what does it do
