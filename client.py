@@ -1,32 +1,34 @@
-# HTTP Client and Request Logic
 import logging
 from typing import Any, Self
 
 import httpx
 from tenacity import (
     RetryCallState,
+    before_sleep_log,
     retry,
     retry_if_exception,
     stop_after_attempt,
     wait_random_exponential,
 )
 
+from fetcherror import RequestFailedError
+
 logger = logging.getLogger(__name__)
 
 SERVER_ERROR_CODES = [500, 502, 503, 504]
+WAIT_TIME = wait_random_exponential(max=30)
 
 
 # helper functions for retry
 def is_retryable_error(exc: BaseException) -> bool:
-    if isinstance(exc, httpx.TransportError):
-        logger.debug("transport error, will retry: %s", exc)
+    if isinstance(
+        exc, (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError)
+    ):
         return True
     if isinstance(exc, httpx.HTTPStatusError):
         if exc.response.status_code == 429:
-            logger.debug("rate limited, will retry: %s", exc.response.status_code)
             return True
         if exc.response.status_code in SERVER_ERROR_CODES:
-            logger.warning("server error, will retry: %s", exc.response.status_code)
             return True
     return False
 
@@ -36,11 +38,10 @@ def backoff_time(retry_state: RetryCallState) -> float:
     if outcome is not None and outcome.failed:
         exc = outcome.exception()
         if isinstance(exc, httpx.HTTPStatusError):
-            retry_after: float = exc.response.headers.get("Retry-After")
+            retry_after: Any = exc.response.headers.get("Retry-After")
             if retry_after:
-                logger.info("honoring Retry-After: %ss", retry_after)
                 return float(retry_after)
-    return wait_random_exponential(max=30)(retry_state)
+    return WAIT_TIME(retry_state)
 
 
 def retry_exhausted(retry_state: RetryCallState):
@@ -69,8 +70,21 @@ class APIClient:
         wait=backoff_time,
         retry=retry_if_exception(is_retryable_error),
         retry_error_callback=retry_exhausted,
+        before_sleep=before_sleep_log(logger, 30),
     )
-    def get(self, path: str, params: dict[str, Any] | None = None) -> httpx.Response:
+    def _get(self, path: str, params: dict[str, Any] | None = None) -> httpx.Response:
         response = self._client.get(path, params=params)
         response.raise_for_status()
         return response
+
+    def get(self, path: str, params: dict[str, Any] | None = None) -> httpx.Response:
+        try:
+            return self._get(path, params)
+        except httpx.HTTPStatusError as exc:
+            raise RequestFailedError(
+                f"HTTP {exc.response.status_code} from {path}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise RequestFailedError(
+                f"{type(exc).__name__} while requesting {path}"
+            ) from exc

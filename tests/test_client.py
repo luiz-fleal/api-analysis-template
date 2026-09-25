@@ -3,7 +3,13 @@ import pytest
 import respx
 import tenacity
 
-from client import APIClient, backoff_time, is_retryable_error, retry_exhausted
+import fetcherror
+from client import (
+    APIClient,
+    backoff_time,
+    is_retryable_error,
+    retry_exhausted,
+)
 from config import BASE_URL, ENDPOINT_PATH
 
 
@@ -99,8 +105,11 @@ def test_get_retries_on_503_then_succeeds(monkeypatch):
         ]
     )
     with APIClient(BASE_URL) as client:
-        data = client.get(path=ENDPOINT_PATH).json()
-    assert data == []
+        response = client.get(
+            f"{ENDPOINT_PATH}",
+            params={},
+        )
+    assert response.json() == []
     assert route.call_count == 2
 
 
@@ -110,8 +119,11 @@ def test_get_does_not_retry_on_404():
         return_value=httpx.Response(404)
     )
 
-    with APIClient(BASE_URL) as client, pytest.raises(httpx.HTTPStatusError):
-        client.get(path=ENDPOINT_PATH)
+    with APIClient(BASE_URL) as client, pytest.raises(fetcherror.RequestFailedError):
+        client.get(
+            f"{ENDPOINT_PATH}",
+            params={},
+        )
     assert route.call_count == 1
 
 
@@ -122,6 +134,9 @@ def test_get_gives_up_after_max_attempts(monkeypatch):
         return_value=httpx.Response(503)
     )
 
-    with APIClient(BASE_URL) as client, pytest.raises(httpx.HTTPStatusError):
-        client.get(path=ENDPOINT_PATH)
+    with APIClient(BASE_URL) as client, pytest.raises(fetcherror.RequestFailedError):
+        client.get(
+            f"{ENDPOINT_PATH}",
+            params={},
+        )
     assert route.call_count == 5
